@@ -1,5 +1,5 @@
 # Postcode-to-BRMA-lookup
-Links postcodes in the UK to Broad Rental Market Areas (BRMAs). BRMAs are spatial units used for the administration of housing allowances for households in rented accommodation. 
+Rmd to produce lookup up, linking unit postcodes in the UK to Broad Rental Market Areas (BRMAs). BRMAs are spatial units used for the administration of housing allowances for households in rented accommodation. Data available from Urban Big Data Centre: https://data.ubdc.ac.uk/providers/urban-big-data-centre?q=%22postcode+to+broad+rental+market+area%22&sort=score+desc%2C+metadata_modified+desc 
 
 ## Licence
 BRMA boundary data published under Open Government Licence. 
