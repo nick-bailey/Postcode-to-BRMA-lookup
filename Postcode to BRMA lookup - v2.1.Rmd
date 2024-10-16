@@ -1,0 +1,386 @@
+---
+title: "Postcode to BRMA lookup - v2.1"
+author: "Nick Bailey"
+date: '2024-05-20'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# # first time only
+# install.packages("here")
+# install.packages("sf")
+# install.packages("tidyverse")
+
+library(here)
+library(sf)
+library(tidyverse)
+
+
+### set lookup version - for resulting csv file name
+lookup_version <- 'v2.1'
+
+```
+
+
+# Constructing a postcode to BRMA lookup file - v2.1 [October 2024]
+
+This Rmd creates a lookup file linking unit postcodes to Broad Rental Market Area (BRMA) boundaries for the whole UK. BRMAs are the spatial areas used for the administration of Housing Benefit or Local Housing Allowance in GB. There are 200 BRMAs in total.
+
+Final lookup ('pcode_brma_lookup.csv') has the following fields: 
+
+* country: 1-character (E - England; N - Northern Ireland; S - Scotland; W - Wales)
+* PCD: 7-character postcodes (may have one space or none)
+* PCD2: 8-character postcodes (may have one space or two)
+* PCDS: 7- or 8-character postcodes (always has one space)
+* brma: the reference number, taken from the BRMA boundary files. NB 
+* brma_name: the name for the BRMA.
+
+### v2 UPDATE (MAY 2024)
+Now using the postcode centroid file current for March 2024 (previously April 2023). Also added Northern Ireland. 
+
+### v2.1 UPDATE (OCTOBER 2024)
+An issue was highlighted regarding licence terms for Northern Ireland postcodes. While postcodes for Britain are published under Open Government Licence, those for Northern Ireland are not (https://www.nisra.gov.uk/support/geography/central-postcode-directory). This is an extremely unhelpful situation which must impede the efforts of researchers who would like to cover the whole of the UK in their work. We have adopted a workaround solution to avoid infringement on copyright. The result is less efficient but it should work. We are very grateful to Owen Boswarva (https://www.owenboswarva.com/) for identifying this issue. He bears no responsibility for the solution adopted. 
+
+
+## BRMA boundaries 
+
+### England
+April 2014 version: Boswarva, Owen. (2017). Broad Rental Market Areas (England), [Dataset]. independent researcher. https://doi.org/10.7488/ds/1963. Obtained using FOI. Open Government Licence.
+Dataset released by the Valuation Office Agency on 16 September 2014. 
+
+There is another version from May 2020 (https://www.gov.uk/government/publications/broad-rental-market-area-boundary-layer-for-geographical-information-system-gis-applicable-may-2020) but number of BRMAs and size of BRMAs (very near) identical in all cases. 
+
+```{r brma eng}
+
+# convert to BNG
+sf_brma_eng <- st_read(here("data-input", "brma_eng", "BRMA0412.shp"))
+# st_crs(sf_brma_eng)
+sf_brma_eng <- st_transform(sf_brma_eng, crs = 27700) %>% 
+  rowid_to_column('row_id')
+
+# # checking 2020 version
+# # imports without CRS so set
+# sf_brma_eng_20 <- st_read(here("data-input", "brma_eng", "English BRMA(LHA) Layer.gml"))
+# # st_crs(sf_brma_eng_20)
+# sf_brma_eng_20 <- st_set_crs(sf_brma_eng_20, 27700) %>% 
+#   rowid_to_column('row_id')
+# 
+# # compare - same names in both
+# names_14 <- unique(sf_brma_eng$Name)
+# names_20 <- unique(sf_brma_eng_20$Name)
+# sum(names_14 == names_20)
+# 
+# # makes area of brma in each and compare
+# sf_brma_eng$area14 <- st_area(temp14)
+# sf_brma_eng_20$area20 <- st_area(temp20)
+# sf_brma_eng_20 %>% 
+#   cbind(sf_brma_eng %>% select(area14)) %>% 
+#   ggplot(aes(x = as.numeric(area14), y = as.numeric(area20))) +
+#   geom_point()
+
+```
+
+### Scotland
+Boswarva, Owen. (2017). Broad Rental Market Areas (Scotland), [Dataset]. independent researcher. https://doi.org/10.7488/ds/1968. Obtained using FOI. Open Government Licence. 
+Dataset released by Rent Service Scotland (part of the Scottish Government) on 14 October 2014. 
+
+```{r brma scot}
+
+# opena and convert to BNG
+sf_brma_scot <- st_read(here("data-input", "brma_scot", "Scotland.shp"))
+# st_crs(sf_brma_scot)
+sf_brma_scot <- st_transform(sf_brma_scot, crs = 27700) %>% 
+  rowid_to_column('row_id')
+
+```
+
+### Wales
+Boswarva, Owen. (2017). Broad Rental Market Areas (Wales), [Dataset]. independent researcher. https://doi.org/10.7488/ds/1965. Obtained using FOI. Open Government Licence.
+Dataset released by Rent Officers Wales (part of the Housing Division of the Welsh Government) on 23 September 2014.
+
+```{r brma wales}
+
+# imports as BNG
+sf_brma_wales <- st_read(here("data-input", "brma_wales", "wales_brma.shp"))
+# st_crs(sf_brma_wales)
+sf_brma_wales <- st_transform(sf_brma_wales, crs = 27700) %>% 
+  rowid_to_column('row_id')
+
+
+```
+
+### NI
+NI works from a manually created lookup, not from a boundary file, using a list of postcode 'outcodes' which constitute each BRMA. ('Outcodes' are the portion of the postcode before the space, also known as postcode districts.) These taken from NIHE webpages (May 2024): https://www.nihe.gov.uk/housing-help/local-housing-allowance/current-lha-rent-levels
+
+```{r brma ni}
+
+# pcode number/name lookup - added 200 to nos to avoid conflict with Eng nos
+df_temp <- data.frame(
+  brma = c(208, 207, 203, 202, 204, 201, 206, 205),
+  brma_name = c('Belfast', 'Lough Neagh Upper', 'Lough Neagh Lower', 'North', 
+                'North West', 'South', 'South East', 'South West'))
+
+# pcode number/pcode outcode lookup - from website
+df_brma_ni <- data.frame(brma = c(rep(208, 16), 
+                               rep(207, 13), 
+                               rep(203, 10), 
+                               rep(202, 7), 
+                               rep(204, 4), 
+                               rep(201, 6), 
+                               rep(206, 14), 
+                               rep(205, 10)),
+                      PCD_out = c(paste0("BT", 1:16),                   #1
+                                  "BT29", paste0("BT", 36:46), "BT80",  #2
+                                  "BT25", paste0("BT", 62:67), 
+                                     paste0("BT", 69:71),               #3
+                                  paste0("BT", 51:57),                  #4
+                                  paste0("BT", 47:49), "BT82",          #5
+                                  "BT32", "BT34", "BT35", "BT60", 
+                                     "BT61", "BT68",                    #6
+                                  paste0("BT", 17:24), paste0("BT", 26:28), 
+                                    "BT30", "BT31", "BT33",             #7
+                                  paste0("BT", 74:79), "BT81", 
+                                     paste0("BT", 92:94)                #8
+                                  ))
+
+# merge the two
+df_brma_ni <- df_brma_ni %>% 
+  left_join(df_temp, by = 'brma') %>% 
+  select(PCD_out, everything())
+
+```
+
+
+## Postcode centroids
+Import postcode file with centroids, and split into four country subsets. 
+https://geoportal.statistics.gov.uk/datasets/ons::nspl-online-latest-centroids/
+Source: Office for National Statistics licensed under the Open Government Licence v.3.0 [excluding Northern Ireland]
+Contains OS data © Crown copyright and database right [year]
+
+
+```{r pcode}
+
+# imports as BNG 
+sf_temp <- st_read(here("data-input", "pcode", "NSPL_Latest_UK.shp"))
+# st_crs(sf_pcode)
+
+# filter out L9999.. and M9999.. pcodes
+sf_pcode <- sf_temp %>% 
+  filter(substr(LAUA, 1, 1) != "L" &
+           substr(LAUA, 1, 1) != "M")
+
+# eng
+sf_pcode_eng <- sf_pcode[substr(sf_pcode$LAUA, 1, 1) == 'E',] %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, LAUA, OA21, LSOA21) %>% 
+  rowid_to_column('row_id')
+
+# scot
+sf_pcode_scot <- sf_pcode[substr(sf_pcode$LAUA, 1, 1) == 'S',] %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, LAUA, OA21, LSOA21) %>% 
+  rowid_to_column('row_id')
+
+# wales
+sf_pcode_wales <- sf_pcode[substr(sf_pcode$LAUA, 1, 1) == 'W',] %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, LAUA, OA21, LSOA21) %>% 
+  rowid_to_column('row_id')
+
+### CODE REMOVED TO AVOID USE OF NI POSTCODE
+# # ni
+# sf_pcode_ni <- sf_pcode[substr(sf_pcode$LAUA, 1, 1) == 'N',] %>% 
+#   select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, LAUA, OA21, LSOA21) %>% 
+#   rowid_to_column('row_id')
+
+
+# # check
+# nrow(sf_pcode) - 
+#   (nrow(sf_pcode_eng)+nrow(sf_pcode_scot)+nrow(sf_pcode_wales)+nrow(sf_pcode_ni))
+
+# store nrow(sf_pocde)
+rows_sf_pcode <- nrow(sf_pcode)
+
+
+# tidy up
+rm(sf_temp)
+rm(sf_pcode)
+
+```
+
+
+## Pcode in BRMAs
+Make the lookup between postcodes and BRMAs, then add variables for each and reduce to those necessary for the lookup file. NB that, when using bounary files, there are many postcode centroids which fall outside any BRMA - almost entirely coastal. Seem to be using different definitions of the coast. For speed, do most pcodes using sf_intersects(), then identify the unmatched postcodes, and use sf_nearest() for remainder (much slower). This process is why it was necessary to split the postcode centroid file by country first. 
+
+### England
+```{r pcode brma eng}
+
+# england 2014 
+df_pcode_brma_eng <- as.data.frame(st_intersects(sf_pcode_eng, sf_brma_eng, sparse = TRUE)) %>% 
+  left_join(sf_pcode_eng, by = c('row.id' = 'row_id')) %>% 
+  left_join(sf_brma_eng, by = c('col.id' = 'row_id')) %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21, LOCALITY_I, Name) %>% 
+  rename(brma = LOCALITY_I, 
+         brma_name = Name)
+
+# sf object with unmatched pcodes
+sf_missed <- sf_pcode_eng[!(sf_pcode_eng$PCD %in% df_pcode_brma_eng$PCD), ]
+
+# brma_id for unmatched pcodes  
+sf_missed$brma_id <- st_nearest_feature(sf_missed, sf_brma_eng)
+
+# add brma details and make df
+df_missed <- as.data.frame(sf_missed) %>% 
+  left_join(as.data.frame((sf_brma_eng %>% select(row_id, LOCALITY_I, Name))), 
+            by = c('brma_id' = 'row_id')) %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21, LOCALITY_I, Name) %>% 
+  rename(brma = LOCALITY_I, 
+         brma_name = Name)
+
+# merge on to rest
+df_pcode_brma_eng <- df_pcode_brma_eng %>% 
+  rbind(df_missed) %>% 
+  mutate(country = "E")
+
+```
+
+
+### Scotland
+```{r pcode brma scot}
+
+# scotland - OA21/LSOA21 not yet on file
+df_pcode_brma_scot <- as.data.frame(st_intersects(sf_pcode_scot, sf_brma_scot, sparse = TRUE)) %>% 
+  left_join(sf_pcode_scot, by = c('row.id' = 'row_id')) %>% 
+  left_join(sf_brma_scot, by = c('col.id' = 'row_id')) %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21, LOCALITY_I, Name) %>% 
+  filter(!is.na(PCD)) %>% 
+  rename(brma = LOCALITY_I, 
+         brma_name = Name)
+
+# sum(is.na(df_pcode_brma_scot$PCD))
+
+# sf object with unmatched pcodes
+sf_missed <- sf_pcode_scot[!(sf_pcode_scot$PCD %in% df_pcode_brma_scot$PCD), ]
+
+# brma_id for unmatched pcodes  
+sf_missed$brma_id <- st_nearest_feature(sf_missed, sf_brma_scot)
+
+# add brma details and make df
+df_missed <- as.data.frame(sf_missed) %>% 
+  left_join(as.data.frame((sf_brma_scot %>% select(row_id, LOCALITY_I, Name))), 
+            by = c('brma_id' = 'row_id')) %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21, LOCALITY_I, Name) %>% 
+  rename(brma = LOCALITY_I, 
+         brma_name = Name)
+
+# merge on to rest
+df_pcode_brma_scot <- df_pcode_brma_scot %>% 
+  rbind(df_missed) %>% 
+  mutate(country = "S")
+
+```
+
+
+### Wales
+```{r pcode brma wales}
+
+# wales - OA11 seems to be missing
+df_pcode_brma_wales <- as.data.frame(st_intersects(sf_pcode_wales, sf_brma_wales, sparse = TRUE)) %>% 
+  left_join(sf_pcode_wales, by = c('row.id' = 'row_id')) %>% 
+  left_join(sf_brma_wales, by = c('col.id' = 'row_id')) %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21, brma, brma_name) %>% 
+  filter(!is.na(PCD)) 
+  
+
+# sf object with unmatched pcodes
+sf_missed <- sf_pcode_wales[!(sf_pcode_wales$PCD %in% df_pcode_brma_wales$PCD), ]
+
+# brma_id for unmatched pcodes  
+sf_missed$brma_id <- st_nearest_feature(sf_missed, sf_brma_wales)
+
+# add brma details and make df
+df_missed <- as.data.frame(sf_missed) %>% 
+  left_join(as.data.frame((sf_brma_wales %>% select(row_id, brma, brma_name))), 
+            by = c('brma_id' = 'row_id')) %>% 
+  select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21, brma, brma_name)
+
+# merge on to rest
+df_pcode_brma_wales <- df_pcode_brma_wales %>% 
+  rbind(df_missed) %>% 
+  mutate(country = "W")
+
+```
+
+### NI
+For NI, we use a different approach to avoid using NI postcodes as they are not available under OGL. Instead, we generate a list of every possible postcode in NI and associate each with a BRMA using the outcodes-BRMA list taken from the NIHE website. The incode section comprises: one digit (0-9) and two letters, taken from a list of 20 (i.e. not using [CIKMOV]). That gives 4000 permutations for each outcode, or 320,000 in total. Note that this includes a very large number of cases which are not in fact real postcodes (more than 80%). This makes any linkage much less efficient but it should still work. 
+
+
+```{r pcode brma ni}
+
+### CODE REMOVED TO AVOID USING NI POSTCODES
+# # take full pcodes from sf and merge brma based on outcode
+# df_pcode_brma_ni <- as.data.frame(sf_pcode_ni) %>% 
+#   select(PCD, PCD2, PCDS, OA11, LSOA11, WZ11, OA21, LAUA, LSOA21) %>% 
+#   filter(!is.na(PCD)) %>% 
+#   mutate(PCD_out = word(PCDS, 1, sep = " ")) %>% 
+#   left_join(df_brma_ni, by = 'PCD_out') %>% 
+#   select(-PCD_out) %>% 
+#   mutate(country = "N")
+
+# table(df_pcode_brma_ni$brma)
+
+
+### NEW CODE 
+# generate every possible incode permutation for each outcode and make all possible NI postcodes
+# add BRMA information
+df_pcode_brma_ni <- data.frame(expand.grid(PCD_out = df_brma_ni$PCD_out, 
+                                           a = 0:9, 
+                                           b = LETTERS[-c(3,9,11,13,15,22)], 
+                                           c = LETTERS[-c(3,9,11,13,15,22)])) %>% 
+  mutate(across(everything(), as.character)) %>% 
+  mutate(country = 'N', 
+         PCDS = paste0(PCD_out, " ", a, b, c), 
+         nchar_PCDS = nchar(PCDS)) %>% 
+  mutate(PCD = case_when(nchar(PCDS) == 8 ~ gsub(" ", "", PCDS), 
+                         TRUE ~ PCDS), 
+         PCD2 = case_when(nchar(PCDS) == 7 ~ gsub(" ", "  ", PCDS), 
+                         TRUE ~ PCDS))
+
+
+# join
+df_pcode_brma_ni <- df_pcode_brma_ni %>% 
+  left_join(df_brma_ni, by = 'PCD_out') %>% 
+  select(country, PCD, PCD2, PCDS, brma, brma_name)
+
+
+```
+
+
+## Combine into one data frame
+
+```{r combine}
+
+df_pcode_brma <- df_pcode_brma_eng %>% 
+  select(country, PCD, PCD2, PCDS, brma, brma_name) %>% 
+  rbind(df_pcode_brma_scot %>% 
+          select(country, PCD, PCD2, PCDS, brma, brma_name)) %>% 
+  rbind(df_pcode_brma_wales %>% 
+          select(country, PCD, PCD2, PCDS, brma, brma_name)) %>% 
+  rbind(df_pcode_brma_ni %>% 
+          select(country, PCD, PCD2, PCDS, brma, brma_name))
+
+
+# # check
+# nrow(df_pcode_brma) - rows_sf_pcode
+
+```
+
+## Save pcode to brma lookup
+
+```{r save}
+
+# pcode to brma
+write_csv(df_pcode_brma, 
+          here("data-output", paste0("pcode_brma_lookup_", lookup_version, ".csv")))
+
+```
+
